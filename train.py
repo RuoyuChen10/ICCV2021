@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 
 import Datasets.dataload as dl
 from models.resnet import resnet50
+from utils import *
 
 from tqdm import tqdm
 
@@ -33,24 +34,6 @@ class MultiClassLoss(nn.Module):
             loss += criterion_loss
             loss_information.append(criterion_loss.data.item())
         return loss,loss_information
-
-def get_network(command,weight_path):
-    '''
-    Get the object network
-        command: Type of network
-        weight_path: If need priority load the pretrained model?
-    '''
-    # Load model
-    if weight_path is not None and os.path.exists(weight_path):
-        model = torch.load(weight_path)
-        print("Model parameters: " + weight_path + " has been load!")
-    elif command == "resnet50":
-        model = resnet50()
-        print("Model load: ResNet50 as backbone.")
-    # Multi GPU
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
-    return model
 
 def Compute_Accuracy(out1,out2,out3,label1,label2,label3):
     '''
