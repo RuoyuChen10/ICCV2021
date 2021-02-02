@@ -7,7 +7,7 @@ Created on 2021/1/31
 """
 
 import argparse
-import pickle
+import os
 
 import torch
 import torch.nn as nn 
@@ -21,7 +21,7 @@ from models.resnet import resnet50
 
 from tqdm import tqdm
 
-class MultiClassLoss(nn.Module):
+class MultiClassLoss(nn.Module):cd R  
     def __init__(self):
         super(MultiClassLoss, self).__init__()
         self.criterion = nn.CrossEntropyLoss()
@@ -82,7 +82,7 @@ def optimize_param(model, train_loader, optimizer, loss, datasets_path, epoch):
         # Accuracy
         correct1,correct2,correct3 = Compute_Accuracy(out1,out2,out3,label1,label2,label3)
         # Information
-        train_step.set_description("Epoch %d: Total loss: %f, loss1: %f, loss2: %f, loss3: %f, acc1: %f%%, acc2: %f%%, acc3: %f%%." \
+        train_step.set_description("Epoch %d training set: Total loss: %f, loss1: %f, loss2: %f, loss3: %f, acc1: %f%%, acc2: %f%%, acc3: %f%%." \
             % (epoch,losses.data.item(),loss_information[0],loss_information[1],loss_information[2],correct1,correct2,correct3))
         # Optimize
         optimizer.zero_grad()
@@ -102,30 +102,39 @@ def eval_model(model, val_loader, loss, datasets_path, epoch):
     correct1 = 0
     correct2 = 0
     correct3 = 0
-    #with torch.no_grad():
-    for data in val_loader:
-        val_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
-        # GPU
-        if torch.cuda.is_available():
-            val_data = torch.cuda.FloatTensor(val_data)
-            label1 = torch.cuda.LongTensor(label1)
-            label2 = torch.cuda.LongTensor(label2)
-            label3 = torch.cuda.LongTensor(label3)
-        else:
-            val_data = Variable(torch.FloatTensor(val_data))
-            label1 = Variable(torch.LongTensor(label1))
-            label2 = Variable(torch.LongTensor(label2))
-            label3 = Variable(torch.LongTensor(label3))
-        # Output
-        out1,out2,out3 = model(val_data)
-        # Loss
-        pred1 = out1.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-        pred2 = out2.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-        pred3 = out3.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-        correct1 += pred1.eq(label1.view_as(pred1)).sum().item()
-        correct2 += pred2.eq(label2.view_as(pred2)).sum().item()
-        correct3 += pred3.eq(label3.view_as(pred3)).sum().item()
-    print('Epoch %d test set: Accuracy1: {}/{} ({:.0f}%), Accuracy2: {}/{} ({:.0f}%), Accuracy3: {}/{} ({:.0f}%)'.format(
+    val_step = tqdm(val_loader)
+    with torch.no_grad():
+      for data in val_step:
+          val_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
+          # GPU
+          if torch.cuda.is_available():
+              val_data = torch.cuda.FloatTensor(val_data)
+              label1 = torch.cuda.LongTensor(label1)
+              label2 = torch.cuda.LongTensor(label2)
+              label3 = torch.cuda.LongTensor(label3)
+          else:
+              val_data = Variable(torch.FloatTensor(val_data))
+              label1 = Variable(torch.LongTensor(label1))
+              label2 = Variable(torch.LongTensor(label2))
+              label3 = Variable(torch.LongTensor(label3))
+          # Output
+          out1,out2,out3 = model(val_data)
+          # Loss
+          pred1 = out1.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+          pred2 = out2.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+          pred3 = out3.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+          correct1 += pred1.eq(label1.view_as(pred1)).sum().item()
+          correct2 += pred2.eq(label2.view_as(pred2)).sum().item()
+          correct3 += pred3.eq(label3.view_as(pred3)).sum().item()
+          val_step.set_description(
+              "Epoch %d validation set: acc1: %f%%, acc2: %f%%, acc3: %f%%." \
+              % (epoch, 
+                 pred1.eq(label1.view_as(pred1)).sum().item()/len(out1),
+                 pred2.eq(label2.view_as(pred2)).sum().item()/len(out2),
+                 pred3.eq(label3.view_as(pred3)).sum().item()/len(out3)
+              )
+          )
+    val_step.set_description('Epoch %d validation set: Accuracy1: {}/{} ({:.0f}%), Accuracy2: {}/{} ({:.0f}%), Accuracy3: {}/{} ({:.0f}%)'.format(
         epoch,
         correct1, len(val_loader.dataset), 100. * correct1 / len(val_loader.dataset),
         correct2, len(val_loader.dataset), 100. * correct2 / len(val_loader.dataset),
