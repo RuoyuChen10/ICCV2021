@@ -19,6 +19,7 @@ class GradCAM(object):
         self.layer_name = layer_name
         self.feature = None
         self.gradient = None
+        self.task_num = self.get_multi_task_number(self.net)
 
     def _net_init(self,net):
         self.net = net
@@ -28,7 +29,7 @@ class GradCAM(object):
 
     def _get_features_hook(self, module, input, output):
         self.feature = output
-        # print("feature shape:{}".format(output.size()))
+        print("feature shape:{}".format(output.size()))
 
     def _get_grads_hook(self, module, input_grad, output_grad):
         """
@@ -51,7 +52,19 @@ class GradCAM(object):
         for handle in self.handlers:
             handle.remove()
 
-    def __call__(self, inputs, index):
+    def get_multi_task_number(self, net):
+        """
+        Get the number of multi-task
+        The multi-task net must using torch.nn.Linear as judge,
+        and only exist 1 layer for one task.
+        """
+        num = 0
+        for name, m in net.named_modules():
+            if isinstance(m, torch.nn.Linear):
+                num+=1
+        return num
+
+    def __call__(self, inputs, index=None):
         """
 
         :param inputs: [1,3,H,W]
@@ -61,27 +74,38 @@ class GradCAM(object):
         self.handlers = []
         self._register_hook()
         self.net.zero_grad()
-        output = self.net(inputs)  # [1,num_classes]
-        if index is None:
-            index = torch.argmax(output.cuda())
-        target = output[0][index]
-        target.backward()
 
-        gradient = self.gradient[0]  # [C,H,W]
-        weight = torch.mean(gradient, axis=(1, 2))  # [C]
+        total_cam = []
+        output = self.net(inputs)  # [num,num_classes] -> _get_features_hook
+        for i in range(self.task_num):
+            # choose the task
+            if self.task_num == 1:
+                task_output = output
+            else:
+                task_output = output[i]
+            if index is None:
+                index = torch.argmax(task_output)
+            target = task_output[0][index]
+            if i == self.task_num-1:
+                target.backward()  # -> _get_grads_hook
+            else:
+                target.backward(retain_graph=True)  # -> _get_grads_hook
+            gradient = self.gradient[0]  # [C,H,W]
+            weight = torch.mean(gradient, axis=(1, 2))  # [C]
 
-        feature = self.feature[0]  # [C,H,W]
+            feature = self.feature[0]  # [C,H,W]
 
-        cam = feature * weight[:, np.newaxis, np.newaxis]  # [C,H,W]
-        cam = torch.sum(cam, axis=0)  # [H,W]
-        cam = torch.relu(cam)  # ReLU
+            cam = feature * weight[:, np.newaxis, np.newaxis]  # [C,H,W]
+            cam = torch.sum(cam, axis=0)  # [H,W]
+            cam = torch.relu(cam)  # ReLU
 
-        # Normalization
-        cam -= torch.min(cam)
-        cam /= torch.max(cam)
-        # resize to 224*224
-        cam = cv2.resize(cam.cpu().data.numpy(), (224, 224))
-        return cam
+            # Normalization
+            cam -= torch.min(cam)
+            cam /= torch.max(cam)
+            # resize to 224*224
+            cam = cv2.resize(cam.cpu().data.numpy(), (224, 224))
+            total_cam.append(cam)
+        return np.array(total_cam)
 
 
 class GradCamPlusPlus(GradCAM):

@@ -17,7 +17,6 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 import Datasets.dataload as dl
-from models.resnet import resnet50
 from utils import *
 
 from tqdm import tqdm
@@ -180,6 +179,9 @@ def train(args):
     # GPU
     if torch.cuda.is_available():
         model = model.cuda()
+        # Multi GPU
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
     # Loss function
     loss = MultiClassLoss()
     # Optimization method
