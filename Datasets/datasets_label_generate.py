@@ -32,10 +32,10 @@ def train_test_split(datasets_information):
     for i in tqdm(range(0,int(num*0.7))):
         with open("./training.txt","a") as file:
             file.write(datasets_information[i])
-    for i in tqdm(range(int(num*0.7),int(num*0.7)+int(num*0.15))):
+    for i in tqdm(range(int(num*0.7),int(num*0.7)+int(num*0.1))):
         with open("./val.txt","a") as file:
             file.write(datasets_information[i])
-    for i in tqdm(range(int(num*0.7)+int(num*0.15),num)):
+    for i in tqdm(range(int(num*0.7)+int(num*0.1),num)):
         with open("./test.txt","a") as file:
             file.write(datasets_information[i])
 

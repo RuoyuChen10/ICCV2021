@@ -21,7 +21,7 @@ from models.resnet import resnet50
 
 from tqdm import tqdm
 
-class MultiClassLoss(nn.Module):cd R  
+class MultiClassLoss(nn.Module):
     def __init__(self):
         super(MultiClassLoss, self).__init__()
         self.criterion = nn.CrossEntropyLoss()
@@ -33,6 +33,24 @@ class MultiClassLoss(nn.Module):cd R
             loss += criterion_loss
             loss_information.append(criterion_loss.data.item())
         return loss,loss_information
+
+def get_network(command,weight_path):
+    '''
+    Get the object network
+        command: Type of network
+        weight_path: If need priority load the pretrained model?
+    '''
+    # Load model
+    if weight_path is not None and os.path.exists(weight_path):
+        model = torch.load(weight_path)
+        print("Model parameters: " + weight_path + " has been load!")
+    elif command == "resnet50":
+        model = resnet50()
+        print("Model load: ResNet50 as backbone.")
+    # Multi GPU
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+    return model
 
 def Compute_Accuracy(out1,out2,out3,label1,label2,label3):
     '''
@@ -62,32 +80,43 @@ def optimize_param(model, train_loader, optimizer, loss, datasets_path, epoch):
     model.train()
     train_step = tqdm(train_loader)
     for data in train_step:
-        # Load the data
-        train_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
-        # GPU
-        if torch.cuda.is_available():
-            train_data = torch.cuda.FloatTensor(train_data)
-            label1 = torch.cuda.LongTensor(label1)
-            label2 = torch.cuda.LongTensor(label2)
-            label3 = torch.cuda.LongTensor(label3)
-        else:
-            train_data = Variable(torch.FloatTensor(train_data))
-            label1 = Variable(torch.LongTensor(label1))
-            label2 = Variable(torch.LongTensor(label2))
-            label3 = Variable(torch.LongTensor(label3))
-        # Output
-        out1,out2,out3 = model(train_data)
-        # Loss
-        losses,loss_information = loss([out1,out2,out3],[label1,label2,label3])
-        # Accuracy
-        correct1,correct2,correct3 = Compute_Accuracy(out1,out2,out3,label1,label2,label3)
-        # Information
-        train_step.set_description("Epoch %d training set: Total loss: %f, loss1: %f, loss2: %f, loss3: %f, acc1: %f%%, acc2: %f%%, acc3: %f%%." \
-            % (epoch,losses.data.item(),loss_information[0],loss_information[1],loss_information[2],correct1,correct2,correct3))
-        # Optimize
-        optimizer.zero_grad()
-        losses.backward()
-        optimizer.step()
+        try:
+            # Load the data
+            train_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
+            # GPU
+            if torch.cuda.is_available():
+                train_data = torch.cuda.FloatTensor(train_data)
+                label1 = torch.cuda.LongTensor(label1)
+                label2 = torch.cuda.LongTensor(label2)
+                label3 = torch.cuda.LongTensor(label3)
+            else:
+                train_data = Variable(torch.FloatTensor(train_data))
+                label1 = Variable(torch.LongTensor(label1))
+                label2 = Variable(torch.LongTensor(label2))
+                label3 = Variable(torch.LongTensor(label3))
+            # Output
+            out1,out2,out3 = model(train_data)
+            # Loss
+            losses,loss_information = loss([out1,out2,out3],[label1,label2,label3])
+            # Accuracy
+            correct1,correct2,correct3 = Compute_Accuracy(out1,out2,out3,label1,label2,label3)
+            # Information
+            train_step.set_description("Epoch %d training set: Total loss: %f, loss1: %f, loss2: %f, loss3: %f, acc1: %f%%, acc2: %f%%, acc3: %f%%." \
+                % (epoch,losses.data.item(),loss_information[0],loss_information[1],loss_information[2],correct1,correct2,correct3))
+            # Optimize
+            optimizer.zero_grad()
+            losses.backward()
+            optimizer.step()
+            # Empty the CUDA menmory
+            torch.cuda.empty_cache()
+        except RuntimeError as exception:
+            # if out of memory
+            if "out of memory" in str(exception):
+                print("WARNING: out of memory")
+                if hasattr(torch.cuda, 'empty_cache'):
+                    torch.cuda.empty_cache()
+            else:
+                raise exception
 
 def eval_model(model, val_loader, loss, datasets_path, epoch):
     '''
@@ -105,35 +134,45 @@ def eval_model(model, val_loader, loss, datasets_path, epoch):
     val_step = tqdm(val_loader)
     with torch.no_grad():
       for data in val_step:
-          val_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
-          # GPU
-          if torch.cuda.is_available():
-              val_data = torch.cuda.FloatTensor(val_data)
-              label1 = torch.cuda.LongTensor(label1)
-              label2 = torch.cuda.LongTensor(label2)
-              label3 = torch.cuda.LongTensor(label3)
-          else:
-              val_data = Variable(torch.FloatTensor(val_data))
-              label1 = Variable(torch.LongTensor(label1))
-              label2 = Variable(torch.LongTensor(label2))
-              label3 = Variable(torch.LongTensor(label3))
-          # Output
-          out1,out2,out3 = model(val_data)
-          # Loss
-          pred1 = out1.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-          pred2 = out2.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-          pred3 = out3.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-          correct1 += pred1.eq(label1.view_as(pred1)).sum().item()
-          correct2 += pred2.eq(label2.view_as(pred2)).sum().item()
-          correct3 += pred3.eq(label3.view_as(pred3)).sum().item()
-          val_step.set_description(
-              "Epoch %d validation set: acc1: %f%%, acc2: %f%%, acc3: %f%%." \
-              % (epoch, 
-                 pred1.eq(label1.view_as(pred1)).sum().item()/len(out1),
-                 pred2.eq(label2.view_as(pred2)).sum().item()/len(out2),
-                 pred3.eq(label3.view_as(pred3)).sum().item()/len(out3)
-              )
-          )
+            try:
+                val_data, label1, label2, label3 = dl.analysis_data(data,datasets_path)
+                # GPU
+                if torch.cuda.is_available():
+                    val_data = torch.cuda.FloatTensor(val_data)
+                    label1 = torch.cuda.LongTensor(label1)
+                    label2 = torch.cuda.LongTensor(label2)
+                    label3 = torch.cuda.LongTensor(label3)
+                else:
+                    val_data = Variable(torch.FloatTensor(val_data))
+                    label1 = Variable(torch.LongTensor(label1))
+                    label2 = Variable(torch.LongTensor(label2))
+                    label3 = Variable(torch.LongTensor(label3))
+                # Output
+                out1,out2,out3 = model(val_data)
+                # Loss
+                pred1 = out1.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+                pred2 = out2.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+                pred3 = out3.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+                correct1 += pred1.eq(label1.view_as(pred1)).sum().item()
+                correct2 += pred2.eq(label2.view_as(pred2)).sum().item()
+                correct3 += pred3.eq(label3.view_as(pred3)).sum().item()
+                val_step.set_description(
+                    "Epoch %d validation set: acc1: %f%%, acc2: %f%%, acc3: %f%%." \
+                    % (epoch, 
+                        pred1.eq(label1.view_as(pred1)).sum().item()/len(out1),
+                        pred2.eq(label2.view_as(pred2)).sum().item()/len(out2),
+                        pred3.eq(label3.view_as(pred3)).sum().item()/len(out3)
+                    )
+                )
+                # Empty the CUDA menmory
+                torch.cuda.empty_cache()
+            except RuntimeError as exception:
+                if "out of memory" in str(exception):
+                    print("WARNING: out of memory")
+                    if hasattr(torch.cuda, 'empty_cache'):
+                        torch.cuda.empty_cache()
+                else:
+                    raise exception
     val_step.set_description('Epoch %d validation set: Accuracy1: {}/{} ({:.0f}%), Accuracy2: {}/{} ({:.0f}%), Accuracy3: {}/{} ({:.0f}%)'.format(
         epoch,
         correct1, len(val_loader.dataset), 100. * correct1 / len(val_loader.dataset),
@@ -153,18 +192,8 @@ def train(args):
     train_loader = DataLoader(train_data_dir, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_data_dir, batch_size=args.batch_size, shuffle=False)
     # Network
-    if args.network == "resnet50":
-        model = resnet50()
-        # if args.is_pretrained:
-        #     weight_path = "./pre-trained/resnet50_scratch_weight.pth"
-        #     model_dict = model.state_dict()
-        #     with open(weight_path, 'rb') as f:
-        #         obj = f.read()
-        #     pretrained_dict = {key: torch.from_numpy(arr) for key, arr in pickle.loads(obj, encoding='latin1').items() if key in model_dict}
-
-        #     model_dict.update(pretrained_dict)
-        #     model.load_state_dict(model_dict)
-        #     print("Model parameters: " + weight_path + " has been load!")
+    model = get_network(args.network,args.pretrained_path)
+        
     # GPU
     if torch.cuda.is_available():
         model = model.cuda()
@@ -176,6 +205,7 @@ def train(args):
 
     for epoch in range(1, args.epoch+1):
         optimize_param(model, train_loader, optimizer, loss, args.datasets_path, epoch)
+        torch.save(model, args.save_path)
         eval_model(model, val_loader, loss, args.datasets_path, epoch)
     torch.save(model, args.save_path)
 
@@ -188,8 +218,8 @@ def main():
     parser.add_argument('--datasets-path', type=str, 
                         default="/home/cry/data1/VGGFace2-pytorch/VGGFace2/train/",
                         help='Path to the datasets')
-    parser.add_argument('--is-pretrained', type=bool, default=True,
-                        help='If need pretrained?')
+    parser.add_argument('--pretrained-path', type=str, default="./checkpoint/model.pth",
+                        help='Path to the pretrained model.')
     parser.add_argument('--network', type=str,
                         choices=['resnet50'], default="resnet50",
                         help='The network')
@@ -197,14 +227,17 @@ def main():
                         help='Learning rate')
     parser.add_argument('--epoch', type=int, default=10,
                         help='epoch')
-    parser.add_argument('--batch-size', type=int, default=32,
+    parser.add_argument('--batch-size', type=int, default=64,
                         help='batch size')
     parser.add_argument('--opt', type=str, 
                         choices=['Adam'], default="Adam",
                         help='Optimization method')
+    parser.add_argument('--gpu-device', type=str, default="0",
+                        help='GPU device')
     parser.add_argument('--save-path', type=str, default="./checkpoint/model.pth",
                         help='Path to save the model.')
     args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_device
     train(args)
 
 if __name__ == '__main__':
