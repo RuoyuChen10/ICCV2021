@@ -8,12 +8,13 @@ import torch.nn.functional as F
 import torch.utils.model_zoo as modelzoo
 import torchvision
 
-from resnet import Resnet18
 # from modules.bn import InPlaceABNSync as BatchNorm2d
 
 '''
 ResNet
 '''
+resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
