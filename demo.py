@@ -68,7 +68,7 @@ def norm_image(image):
     image *= 255.
     return np.uint8(image)
 
-def Semantic_heatmap(mask1,mask2,image_dir,save_path):
+def Semantic_heatmap(mask1,mask2,image_dir,save_path,heatmap_method,image_input):
     '''
     Semantic heatmap
     '''
@@ -79,9 +79,11 @@ def Semantic_heatmap(mask1,mask2,image_dir,save_path):
     num = mask.shape[0]
     for i in range(0,num):
         mask_ = np.float32(cv2.applyColorMap(np.uint8(norm_image(mask[i])), cv2.COLORMAP_JET))
-        cv2.imwrite(os.path.join(save_path,str(i)+'.jpg'),0.5*image+0.5*mask_)
+        # cv2.imwrite(os.path.join(save_path,"cam",image_input.split('/')[-1]+"-attribute_mask"+str(i)+'_'+heatmap_method+'.jpg'),norm_image(mask[i]))
+        cv2.imwrite(os.path.join(save_path,"cam",image_input.split('/')[-1]+"-attribute_"+str(i)+'_'+heatmap_method+'.jpg'),0.5*image+0.5*mask_)
 
 def main(args):
+    mkdir(os.path.join(args.output_dir,"cam"))
     # Read the images as input
     images = dl.Image_precessing(args.image_input)
     inputs = torch.tensor([images], requires_grad=True)
@@ -92,22 +94,24 @@ def main(args):
     cam1 = get_heatmap_method(net1, method=args.heatmap_method)
     cam2 = get_heatmap_method(net2, method=args.heatmap_method)
     # Mask
-    mask1 = cam1(inputs.cuda(),1)  # cam mask
+    mask1 = cam1(inputs.cuda())  # cam mask
+    # heatmap1 = np.float32(cv2.applyColorMap(np.uint8(norm_image(mask1)), cv2.COLORMAP_JET))
+    # cv2.imwrite(os.path.join(save_path,"cam","indetity_method"+heatmap_method+'.jpg'),heatmap1)
     mask2 = cam2(inputs.cuda())  # cam mask
     cam1.remove_handlers()
     cam2.remove_handlers()
     # gen_cam(args.image_input,mask1)
     # gen_cam(args.image_input,mask2)
     # Semantic heatmap
-    Semantic_heatmap(mask1,mask2,args.image_input,args.output_dir)
+    Semantic_heatmap(mask1,mask2,args.image_input,args.output_dir,args.heatmap_method,args.image_input)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image-input', type=str, default="/home/cry/data1/VGGFace2-pytorch/VGGFace2/train/n000002/0001_01.jpg",
+    parser.add_argument('--image-input', type=str, default="./images/0001_01.jpg",
                         help='input image path')
     parser.add_argument('--network1', type=str, default='VGGFace2',
                         help='Face identity recognition network.')
-    parser.add_argument('--network2', type=str, default='./pre-trained/attribute.pth',
+    parser.add_argument('--network2', type=str, default='./pre-trained/attribute-3.pth',
                         help='Attribute network, name or path.')
     parser.add_argument('--heatmap-method', type=str, default='GradCAM',
                         choices=['GradCAM','GradCAM++'],

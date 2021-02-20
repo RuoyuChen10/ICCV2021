@@ -59,7 +59,7 @@ def Segmentation(image_dir):
         parsing = out.squeeze(0).cpu().numpy().argmax(0)
     return parsing
 
-def merge_seg_cam(image_dir,heatmap,parsing,types=["left_brow", 'right_brow', 'left_eye', 'right_eye', 'nose', 'mouth']):
+def merge_seg_cam(image_dir,heatmap,parsing,types=["left_brow", 'right_brow', 'left_eye', 'right_eye', 'nose', 'u_lip', 'l_lip']):
     '''
     Merge the face with heatmap aas seg_cam
         image_dir: the input, need the align face
@@ -135,7 +135,7 @@ def main(args):
     net = None
     # Segment Net
     parsing = Segmentation(args.image_input)
-    print(np.unique(parsing))
+
     image = merge_seg_cam(args.image_input,heatmap,parsing)
     
     saver = args.network + "-" + args.heatmap_method + '-' + args.image_input.split('/')[-1]

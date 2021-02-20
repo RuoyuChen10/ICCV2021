@@ -85,6 +85,7 @@ class GradCAM(object):
                 task_output = output[i]
             if index is None:
                 index = torch.argmax(task_output)
+            print(index)
             target = task_output[0][index]
             if i == self.task_num-1:
                 target.backward()  # -> _get_grads_hook

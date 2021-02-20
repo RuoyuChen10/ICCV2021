@@ -97,6 +97,8 @@ def optimize_param(model, train_loader, optimizer, loss, datasets_path, epoch):
                 print("WARNING: out of memory")
                 if hasattr(torch.cuda, 'empty_cache'):
                     torch.cuda.empty_cache()
+                    torch.save(model, "./checkpoint/model-"+time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+'.pth')
+                    raise exception
             else:
                 raise exception
 
@@ -152,7 +154,9 @@ def eval_model(model, val_loader, loss, datasets_path, epoch):
                 if "out of memory" in str(exception):
                     print("WARNING: out of memory")
                     if hasattr(torch.cuda, 'empty_cache'):
+                        torch.save(model, "./checkpoint/model-"+time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+'.pth')
                         torch.cuda.empty_cache()
+                        raise exception
                 else:
                     raise exception
     val_step.set_description('Epoch %d validation set: Accuracy1: {}/{} ({:.0f}%), Accuracy2: {}/{} ({:.0f}%), Accuracy3: {}/{} ({:.0f}%)'.format(
@@ -162,6 +166,22 @@ def eval_model(model, val_loader, loss, datasets_path, epoch):
         correct3, len(val_loader.dataset), 100. * correct3 / len(val_loader.dataset)
         )
     )
+
+def load_pretrained(weight_path):
+    model = torch.load(weight_path)
+    try:
+        # if multi-gpu model:
+        model = model.module
+    except:
+        # just 1 gpu or cpu
+        pass
+    pretrain = model.state_dict()
+    new_state_dict = {}
+    for k,v in pretrain.items():
+        new_state_dict[k] = v
+    model.load_state_dict(new_state_dict, strict=True)
+    print("Model parameters: " + weight_path + " has been load!")
+    return model
 
 def train(args):
     '''
@@ -173,15 +193,22 @@ def train(args):
     # DataLoader
     train_loader = DataLoader(train_data_dir, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_data_dir, batch_size=args.batch_size, shuffle=False)
-    # Network
-    model = get_network(args.network,args.pretrained_path)
-        
+    
+    # Pretrained
+    if args.pretrained_path is not None and os.path.exists(args.pretrained_path):
+        model = load_pretrained(args.pretrained_path)
+    else:
+        # Network
+        model = get_network(args.network,args.pretrained_path)
+            
     # GPU
     if torch.cuda.is_available():
         model = model.cuda()
-        # Multi GPU
-        if torch.cuda.device_count() > 1:
-            model = nn.DataParallel(model)
+        
+    # Multi GPU
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+    
     # Loss function
     loss = MultiClassLoss()
     # Optimization method
@@ -190,7 +217,7 @@ def train(args):
 
     for epoch in range(1, args.epoch+1):
         optimize_param(model, train_loader, optimizer, loss, args.datasets_path, epoch)
-        torch.save(model, args.save_path)
+        torch.save(model, "./checkpoint/model-item-epoch-"+str(epoch)+'.pth')
         eval_model(model, val_loader, loss, args.datasets_path, epoch)
     torch.save(model, args.save_path)
 
